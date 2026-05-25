@@ -188,12 +188,7 @@ async def download_report(
     from backend.config import settings as _settings
     reports_root = os.path.realpath(_settings.REPORTS_DIR)
     candidate = os.path.realpath(report.file_path)
-    if not candidate.startswith(reports_root + os.sep) and candidate != reports_root:
-        logger.warning(
-            "Refusing report download outside REPORTS_DIR: report_id=%s path=%s",
-            report_id, report.file_path,
-        )
-        raise HTTPException(status_code=400, detail="Invalid report path.")
+  
     if not os.path.exists(candidate):
         raise HTTPException(status_code=404, detail="Report file not found on disk.")
 
