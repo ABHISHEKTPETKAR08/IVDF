@@ -112,11 +112,11 @@ async def generate_report(
     generator = ReportGenerator()
     try:
         if fmt_key == "pdf":
-            file_path = generator.generate_pdf(scan_data)
+            file_path = generator.generate_pdf("report", scan_data)
         elif fmt_key == "json":
-            file_path = generator.generate_json(scan_data)
+            file_path = generator.generate_json("report", scan_data)
         else:
-            file_path = generator.generate_csv(scan_data)
+            file_path = generator.generate_csv("report", scan_data)
     except Exception as exc:
         logger.error("Report generation failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"Report generation failed: {exc}")
