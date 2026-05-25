@@ -38,7 +38,7 @@ class ReportGenerator:
 
         return filepath
 
-    ddef generate_csv(self, filename, data=None):
+    def generate_csv(self, filename, data=None):
         if data is None:
             data = {"status": "No data available"}
 
