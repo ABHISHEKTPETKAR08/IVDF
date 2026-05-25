@@ -58,7 +58,7 @@ inject_styles()
 # Honour the API_BASE_URL env var so the dashboard works both standalone
 # (defaults to localhost) and inside docker-compose (where it must reach the
 # backend container by service name, e.g. http://backend:8000).
-_DEFAULT_API_BASE = _os.environ.get("API_BASE_URL", "http://localhost:8000").rstrip("/")
+_DEFAULT_API_BASE = _os.environ.get("API_BASE_URL", "https://ivdf.onrender.com").rstrip("/")
 if "api_base" not in st.session_state:
     st.session_state["api_base"] = _DEFAULT_API_BASE
 
