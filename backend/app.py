@@ -17,8 +17,8 @@ from fastapi.responses import JSONResponse, Response
 from backend.config import settings
 from backend.database.db import init_db
 from backend.middleware.rate_limiter import RateLimitMiddleware
-from backend.routes import scan, results, targets, vulnerabilities
-#from backend.routes import scan, results, reports, targets, vulnerabilities
+#from backend.routes import scan, results, targets, vulnerabilities
+from backend.routes import scan, results, reports, targets, vulnerabilities
 from backend.utils import metrics
 from backend.utils.logger import get_logger, set_request_id, setup_logging
 
@@ -201,7 +201,7 @@ def create_app() -> FastAPI:
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(scan.router)
     app.include_router(results.router)
-    #app.include_router(reports.router)
+    app.include_router(reports.router)
     app.include_router(targets.router)
     app.include_router(vulnerabilities.router)
 
