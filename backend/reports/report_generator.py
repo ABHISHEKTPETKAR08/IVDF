@@ -4,21 +4,23 @@ import os
 import json
 import csv
 
+
 class ReportGenerator:
-    def generate_pdf(self, filename, data:
-        if data is None:
-            data = {"status": "No data available"}
+
+    def generate_pdf(self, filename, data):
 
         os.makedirs("generated_reports", exist_ok=True)
 
         filepath = "generated_reports/report.pdf"
 
         c = canvas.Canvas(filepath, pagesize=letter)
+
         c.drawString(100, 750, "IVDF Vulnerability Report")
 
-        y = 700
+        y = 720
+
         for key, value in data.items():
-            c.drawString(100, y, f"{key}: {value}")
+            c.drawString(100, y, f"{key}: {str(value)[:80]}")
             y -= 20
 
         c.save()
@@ -26,8 +28,6 @@ class ReportGenerator:
         return filepath
 
     def generate_json(self, filename, data):
-        if data is None:
-            data = {"status": "No data available"}
 
         os.makedirs("generated_reports", exist_ok=True)
 
@@ -39,19 +39,18 @@ class ReportGenerator:
         return filepath
 
     def generate_csv(self, filename, data):
-        if data is None:
-            data = {"status": "No data available"}
 
         os.makedirs("generated_reports", exist_ok=True)
 
         filepath = "generated_reports/report.csv"
 
         with open(filepath, "w", newline="") as f:
+
             writer = csv.writer(f)
 
             writer.writerow(["Key", "Value"])
 
             for key, value in data.items():
-                writer.writerow([key, value])
+                writer.writerow([key, str(value)])
 
         return filepath
