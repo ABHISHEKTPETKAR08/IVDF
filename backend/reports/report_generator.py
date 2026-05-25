@@ -1,12 +1,23 @@
 """
 Intelligent Vulnerability Detection and Analysis Framework (IVDF)
-Professional Report Generator — Production Ready
+Professional Report Generator — v2 Enhanced Edition
+
+Design Philosophy:
+  - Light paper-toned background (#F8F9FA) for print-friendliness
+  - Deep slate typography (#1A202C) for maximum readability
+  - Muted navy accent (#1E3A5F) for authoritative headers
+  - Severity colours are desaturated and professional (not neon)
+  - Ultra-thin hairline borders replace harsh grids
+  - Generous whitespace creates premium breathing room
+  - Cover block uses a full-width dark banner with white reverse text
+  - Section headings anchored by a 3pt left accent rule
+  - Vulnerability cards use a thin top-border colour strip + soft shadow-
+    simulated background tiers
 """
 
 import os
 import json
 import csv
-from datetime import datetime
 
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -19,348 +30,648 @@ from reportlab.platypus import (
 )
 from reportlab.platypus.flowables import Flowable
 
-# ─────────────────────────────────────────────
-# Colour Palette
-# ─────────────────────────────────────────────
-DARK_BG        = colors.HexColor("#0D1117")
-CARD_BG        = colors.HexColor("#161B22")
-BORDER_COLOR   = colors.HexColor("#30363D")
-ACCENT_BLUE    = colors.HexColor("#1F6FEB")
-TEXT_PRIMARY   = colors.HexColor("#E6EDF3")
-TEXT_SECONDARY = colors.HexColor("#8B949E")
-WHITE          = colors.white
+# ══════════════════════════════════════════════════════
+#  DESIGN TOKENS  —  edit here to retheme the entire PDF
+# ══════════════════════════════════════════════════════
 
-SEV_COLORS = {
-    "CRITICAL": colors.HexColor("#DA3633"),
-    "HIGH":     colors.HexColor("#D29922"),
-    "MEDIUM":   colors.HexColor("#E3B341"),
-    "LOW":      colors.HexColor("#388BFD"),
-    "INFO":     colors.HexColor("#6E7681"),
+# Page / background
+PAGE_BG         = colors.HexColor("#F8F9FA")   # warm off-white — print friendly
+COVER_BG        = colors.HexColor("#1E3A5F")   # deep navy cover band
+COVER_RULE      = colors.HexColor("#2D5F9A")   # lighter navy rule in cover
+
+# Typography
+INK_PRIMARY     = colors.HexColor("#1A202C")   # near-black — max readability
+INK_SECONDARY   = colors.HexColor("#4A5568")   # slate — labels / captions
+INK_TERTIARY    = colors.HexColor("#718096")   # grey — sub-labels / footers
+INK_REVERSED    = colors.HexColor("#EDF2F7")   # off-white for dark backgrounds
+INK_ACCENT      = colors.HexColor("#2B6CB0")   # mid-blue for hyperlinks / tags
+
+# Structural chrome
+ACCENT_NAVY     = colors.HexColor("#1E3A5F")   # section heading left-rule
+HAIRLINE        = colors.HexColor("#CBD5E0")   # ultra-thin border / separator
+DIVIDER         = colors.HexColor("#E2E8F0")   # row separator in tables
+
+# Card / surface tiers
+SURFACE_0       = colors.HexColor("#FFFFFF")   # card background
+SURFACE_1       = colors.HexColor("#F0F4F8")   # alternating row tint
+SURFACE_HEADER  = colors.HexColor("#2D3748")   # dark table header band
+
+# ── Severity palette  (muted, professional) ───────────
+SEV_INK = {
+    "CRITICAL": colors.HexColor("#9B1C1C"),   # deep crimson text
+    "HIGH":     colors.HexColor("#92400E"),   # burnt amber
+    "MEDIUM":   colors.HexColor("#78350F"),   # dark gold / ochre
+    "LOW":      colors.HexColor("#1E40AF"),   # deep blue
+    "INFO":     colors.HexColor("#374151"),   # dark graphite
 }
-
 SEV_BG = {
-    "CRITICAL": colors.HexColor("#3D1F1F"),
-    "HIGH":     colors.HexColor("#3D2F1F"),
-    "MEDIUM":   colors.HexColor("#3D351F"),
-    "LOW":      colors.HexColor("#1F2B3D"),
-    "INFO":     colors.HexColor("#21262D"),
+    "CRITICAL": colors.HexColor("#FEE2E2"),   # blush
+    "HIGH":     colors.HexColor("#FEF3C7"),   # cream amber
+    "MEDIUM":   colors.HexColor("#FFFBEB"),   # pale gold
+    "LOW":      colors.HexColor("#DBEAFE"),   # pale sky
+    "INFO":     colors.HexColor("#F3F4F6"),   # light grey
+}
+SEV_BORDER = {
+    "CRITICAL": colors.HexColor("#FECACA"),
+    "HIGH":     colors.HexColor("#FDE68A"),
+    "MEDIUM":   colors.HexColor("#FDE68A"),
+    "LOW":      colors.HexColor("#BFDBFE"),
+    "INFO":     colors.HexColor("#D1D5DB"),
+}
+SEV_RULE = {
+    "CRITICAL": colors.HexColor("#DC2626"),
+    "HIGH":     colors.HexColor("#D97706"),
+    "MEDIUM":   colors.HexColor("#B45309"),
+    "LOW":      colors.HexColor("#2563EB"),
+    "INFO":     colors.HexColor("#6B7280"),
 }
 
 
-# ─────────────────────────────────────────────
-# Custom Flowables
-# ─────────────────────────────────────────────
-class ColorBar(Flowable):
-    """Full-width horizontal colour bar (used for header accent stripe)."""
-    def __init__(self, color, height=4, width=None):
+# ══════════════════════════════════════════════════════
+#  CUSTOM FLOWABLES
+# ══════════════════════════════════════════════════════
+
+class SectionRule(Flowable):
+    """
+    Premium section heading block:
+      left 3pt navy accent bar  |  heading text  |  hairline rule to right edge
+    Renders entirely on canvas so no font/paragraph quirks.
+    """
+    def __init__(self, text, font_size=11, top_space=18, bottom_space=10):
         super().__init__()
-        self.bar_color = color
-        self.bar_height = height
-        self._width = width
+        self.text         = text
+        self.font_size    = font_size
+        self.top_space    = top_space
+        self.bottom_space = bottom_space
+        self._height      = top_space + font_size * 1.4 + bottom_space
 
     def wrap(self, availWidth, availHeight):
-        self._avail = availWidth
-        return (self._width or availWidth, self.bar_height)
+        self._w = availWidth
+        return (availWidth, self._height)
 
     def draw(self):
-        self.canv.setFillColor(self.bar_color)
-        self.canv.rect(0, 0, self._width or self._avail, self.bar_height, fill=1, stroke=0)
+        c   = self.canv
+        y0  = self.bottom_space
+        bar_h = self.font_size * 1.4
+
+        # left accent bar
+        c.setFillColor(ACCENT_NAVY)
+        c.rect(0, y0, 3, bar_h, fill=1, stroke=0)
+
+        # heading text
+        c.setFillColor(INK_PRIMARY)
+        c.setFont("Helvetica-Bold", self.font_size)
+        text_x = 10
+        text_y = y0 + (bar_h - self.font_size) / 2 + 1
+        c.drawString(text_x, text_y, self.text)
+
+        # hairline rule from end of text to right margin
+        text_w = c.stringWidth(self.text, "Helvetica-Bold", self.font_size)
+        rule_x = text_x + text_w + 8
+        rule_y = y0 + bar_h / 2
+        c.setStrokeColor(HAIRLINE)
+        c.setLineWidth(0.5)
+        c.line(rule_x, rule_y, self._w, rule_y)
 
 
-class SeverityBadge(Flowable):
-    """Inline coloured pill badge for severity labels."""
-    def __init__(self, label, width=80, height=18):
+class CoverBand(Flowable):
+    """
+    Full-width dark navy cover banner containing title, subtitle,
+    classification badge and a decorative bottom rule.
+    """
+    def __init__(self, title, subtitle, available_width):
         super().__init__()
-        self.label = label.upper()
-        self.badge_width = width
-        self.badge_height = height
+        self.title  = title
+        self.subtitle = subtitle
+        self._aw    = available_width
+        self._h     = 2.4 * inch
 
     def wrap(self, availWidth, availHeight):
-        return (self.badge_width, self.badge_height)
+        return (self._aw, self._h)
 
     def draw(self):
-        c = self.canv
-        color = SEV_COLORS.get(self.label, colors.grey)
-        bg    = SEV_BG.get(self.label, colors.HexColor("#21262D"))
-        r = self.badge_height / 2
+        c  = self.canv
+        w  = self._aw
+        h  = self._h
+
+        # background
+        c.setFillColor(COVER_BG)
+        c.rect(0, 0, w, h, fill=1, stroke=0)
+
+        # bottom accent rule (3-tone gradient simulation via stacked rects)
+        c.setFillColor(colors.HexColor("#2D5F9A"))
+        c.rect(0, 0, w, 4, fill=1, stroke=0)
+        c.setFillColor(colors.HexColor("#1A4A7A"))
+        c.rect(0, 4, w, 2, fill=1, stroke=0)
+
+        # subtle diagonal-grid texture lines (very low opacity via grey)
+        c.setStrokeColor(colors.HexColor("#244F7A"))
+        c.setLineWidth(0.4)
+        step = 28
+        for i in range(-int(h / step) - 2, int(w / step) + 2):
+            x1 = i * step
+            c.line(x1, 0, x1 + h, h)
+
+        # IVDF monogram box  (top-left corner)
+        c.setFillColor(colors.HexColor("#2D5F9A"))
+        c.rect(20, h - 44, 36, 28, fill=1, stroke=0)
+        c.setFillColor(INK_REVERSED)
+        c.setFont("Helvetica-Bold", 9)
+        c.drawCentredString(38, h - 33, "IVDF")
+
+        # main title
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 20)
+        c.drawString(20, h - 78, self.title)
+
+        # subtitle
+        c.setFillColor(colors.HexColor("#93C5FD"))   # soft blue tint
+        c.setFont("Helvetica", 10)
+        c.drawString(20, h - 98, self.subtitle)
+
+        # thin rule below subtitle
+        c.setStrokeColor(colors.HexColor("#2D5F9A"))
+        c.setLineWidth(0.75)
+        c.line(20, h - 108, w - 20, h - 108)
+
+        # classification tag
+        tag_w, tag_h = 96, 16
+        tag_x = w - tag_w - 20
+        tag_y = h - 36
+        c.setFillColor(colors.HexColor("#7F1D1D"))
+        c.roundRect(tag_x, tag_y, tag_w, tag_h, 3, fill=1, stroke=0)
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 7)
+        c.drawCentredString(tag_x + tag_w / 2, tag_y + 5, "CONFIDENTIAL")
+
+        # report label (bottom-right of banner)
+        c.setFillColor(colors.HexColor("#93C5FD"))
+        c.setFont("Helvetica", 8)
+        c.drawRightString(w - 20, 12, "Vulnerability Assessment Report")
+
+
+class SeverityPill(Flowable):
+    """
+    Refined pill badge — soft background, muted border, no harsh colours.
+    Designed to sit inline inside a Table cell.
+    """
+    def __init__(self, label, pill_w=64, pill_h=15):
+        super().__init__()
+        self.label   = label.upper()
+        self.pill_w  = pill_w
+        self.pill_h  = pill_h
+
+    def wrap(self, aw, ah):
+        return (self.pill_w, self.pill_h)
+
+    def draw(self):
+        c      = self.canv
+        ink    = SEV_INK.get(self.label,    INK_SECONDARY)
+        bg     = SEV_BG.get(self.label,     SURFACE_1)
+        border = SEV_BORDER.get(self.label, HAIRLINE)
+        r      = self.pill_h / 2
+
         c.setFillColor(bg)
-        c.roundRect(0, 0, self.badge_width, self.badge_height, r, fill=1, stroke=0)
-        c.setStrokeColor(color)
-        c.setLineWidth(1)
-        c.roundRect(0, 0, self.badge_width, self.badge_height, r, fill=0, stroke=1)
-        c.setFillColor(color)
-        c.setFont("Helvetica-Bold", 8)
-        c.drawCentredString(self.badge_width / 2, 5, self.label)
+        c.roundRect(0, 0, self.pill_w, self.pill_h, r, fill=1, stroke=0)
+        c.setStrokeColor(border)
+        c.setLineWidth(0.6)
+        c.roundRect(0, 0, self.pill_w, self.pill_h, r, fill=0, stroke=1)
+        c.setFillColor(ink)
+        c.setFont("Helvetica-Bold", 7)
+        c.drawCentredString(self.pill_w / 2, 4.5, self.label)
 
 
-# ─────────────────────────────────────────────
-# Page template helpers
-# ─────────────────────────────────────────────
-def _header_footer(canvas, doc):
-    """Draw a dark header band and confidential footer on every page."""
-    w, h = letter
-    margin = 0.6 * inch
+class CardTopRule(Flowable):
+    """A 3pt coloured rule that forms the top edge of a vulnerability card."""
+    def __init__(self, color, width):
+        super().__init__()
+        self.rule_color = color
+        self._w = width
 
-    # ── top accent stripe ──
+    def wrap(self, aw, ah):
+        return (self._w, 3)
+
+    def draw(self):
+        self.canv.setFillColor(self.rule_color)
+        self.canv.rect(0, 0, self._w, 3, fill=1, stroke=0)
+
+
+# ══════════════════════════════════════════════════════
+#  PAGE CHROME  (header / footer drawn on every page)
+# ══════════════════════════════════════════════════════
+
+def _page_chrome(canvas, doc):
+    """Elegant header + footer on every page."""
+    w, h   = letter
+    lm     = 0.65 * inch
+    rm     = w - 0.65 * inch
+
     canvas.saveState()
-    canvas.setFillColor(ACCENT_BLUE)
-    canvas.rect(0, h - 4, w, 4, fill=1, stroke=0)
 
-    # ── page number (top-right) ──
-    canvas.setFillColor(TEXT_SECONDARY)
-    canvas.setFont("Helvetica", 8)
-    canvas.drawRightString(w - margin, h - 20, f"Page {doc.page}")
-
-    # ── footer rule ──
-    canvas.setStrokeColor(BORDER_COLOR)
+    # ── top hairline ──────────────────────────────────
+    canvas.setStrokeColor(HAIRLINE)
     canvas.setLineWidth(0.5)
-    canvas.line(margin, 36, w - margin, 36)
+    canvas.line(lm, h - 28, rm, h - 28)
 
-    canvas.setFillColor(TEXT_SECONDARY)
-    canvas.setFont("Helvetica-Oblique", 8)
-    footer = "CONFIDENTIAL — For authorised security assessment use only. " \
-             "This report was generated by the Intelligent Vulnerability Detection and Analysis Framework."
-    canvas.drawString(margin, 22, footer)
+    # ── header: page label left, page number right ────
+    canvas.setFillColor(INK_TERTIARY)
+    canvas.setFont("Helvetica", 7.5)
+    canvas.drawString(lm, h - 22, "IVDF  ·  Vulnerability Assessment Report")
+    canvas.drawRightString(rm, h - 22, f"Page {doc.page}")
+
+    # ── footer hairline ───────────────────────────────
+    canvas.setStrokeColor(HAIRLINE)
+    canvas.line(lm, 40, rm, 40)
+
+    # ── footer text ───────────────────────────────────
+    canvas.setFillColor(INK_TERTIARY)
+    canvas.setFont("Helvetica-Oblique", 7)
+    canvas.drawString(
+        lm, 28,
+        "CONFIDENTIAL  —  For authorised security assessment use only.  "
+        "Generated by the Intelligent Vulnerability Detection and Analysis Framework."
+    )
+
     canvas.restoreState()
 
 
-# ─────────────────────────────────────────────
-# Style factory
-# ─────────────────────────────────────────────
-def _build_styles():
-    base = getSampleStyleSheet()
+# ══════════════════════════════════════════════════════
+#  TYPOGRAPHY SYSTEM
+# ══════════════════════════════════════════════════════
 
-    def ps(name, **kw):
+def _build_styles() -> dict:
+    def ps(name, **kw) -> ParagraphStyle:
         return ParagraphStyle(name, **kw)
 
     return {
-        "report_title": ps(
-            "ReportTitle",
+        # ── cover (unused — CoverBand draws its own text) ──
+        "cover_title": ps(
+            "CoverTitle",
             fontName="Helvetica-Bold", fontSize=22,
-            textColor=TEXT_PRIMARY, alignment=TA_CENTER,
-            spaceAfter=4
+            textColor=colors.white, alignment=TA_LEFT, leading=28,
         ),
-        "report_subtitle": ps(
-            "ReportSubtitle",
-            fontName="Helvetica", fontSize=11,
-            textColor=TEXT_SECONDARY, alignment=TA_CENTER,
-            spaceAfter=2
+
+        # ── scan details / metadata ──────────────────────
+        "meta_label": ps(
+            "MetaLabel",
+            fontName="Helvetica-Bold", fontSize=8.5,
+            textColor=INK_SECONDARY, leading=12,
         ),
-        "section_heading": ps(
-            "SectionHeading",
-            fontName="Helvetica-Bold", fontSize=13,
-            textColor=TEXT_PRIMARY, spaceBefore=10, spaceAfter=6,
-            borderPad=(0, 0, 4, 0)
+        "meta_value": ps(
+            "MetaValue",
+            fontName="Helvetica", fontSize=8.5,
+            textColor=INK_PRIMARY, leading=12, wordWrap="CJK",
+        ),
+        "meta_value_bold": ps(
+            "MetaValueBold",
+            fontName="Helvetica-Bold", fontSize=8.5,
+            textColor=INK_PRIMARY, leading=12,
+        ),
+
+        # ── severity summary ────────────────────────────
+        "sev_header": ps(
+            "SevHeader",
+            fontName="Helvetica-Bold", fontSize=8.5,
+            textColor=colors.white, alignment=TA_CENTER,
+        ),
+        "sev_label": ps(
+            "SevLabel",
+            fontName="Helvetica-Bold", fontSize=8.5,
+            textColor=INK_SECONDARY, leading=12,
+        ),
+        "sev_count": ps(
+            "SevCount",
+            fontName="Helvetica-Bold", fontSize=9,
+            textColor=INK_PRIMARY, alignment=TA_CENTER, leading=12,
+        ),
+
+        # ── vulnerability cards ─────────────────────────
+        "vuln_index": ps(
+            "VulnIndex",
+            fontName="Helvetica-Bold", fontSize=8,
+            textColor=INK_SECONDARY,
         ),
         "vuln_title": ps(
             "VulnTitle",
-            fontName="Helvetica-Bold", fontSize=12,
-            textColor=TEXT_PRIMARY, spaceAfter=2
+            fontName="Helvetica-Bold", fontSize=11,
+            textColor=INK_PRIMARY, leading=15, spaceAfter=2,
         ),
-        "label": ps(
-            "Label",
-            fontName="Helvetica-Bold", fontSize=9,
-            textColor=TEXT_SECONDARY
+        "field_label": ps(
+            "FieldLabel",
+            fontName="Helvetica-Bold", fontSize=7.5,
+            textColor=INK_TERTIARY, leading=11,
+            # letter-spacing simulated via spaces — ReportLab has no tracking
         ),
-        "value": ps(
-            "Value",
-            fontName="Helvetica", fontSize=9,
-            textColor=TEXT_PRIMARY, leading=13
+        "field_value": ps(
+            "FieldValue",
+            fontName="Helvetica", fontSize=8.5,
+            textColor=INK_PRIMARY, leading=13, wordWrap="CJK",
         ),
-        "body": ps(
-            "Body",
-            fontName="Helvetica", fontSize=9,
-            textColor=TEXT_PRIMARY, leading=14, spaceAfter=2
+        "field_value_mono": ps(
+            "FieldValueMono",
+            fontName="Courier", fontSize=8,
+            textColor=INK_SECONDARY, leading=12, wordWrap="CJK",
         ),
-        "bullet": ps(
-            "Bullet",
-            fontName="Helvetica", fontSize=9,
-            textColor=TEXT_PRIMARY, leading=14,
-            leftIndent=12, spaceAfter=2, bulletIndent=0
+        "bullet_item": ps(
+            "BulletItem",
+            fontName="Helvetica", fontSize=8.5,
+            textColor=INK_PRIMARY, leading=13,
+            leftIndent=10, spaceAfter=1, wordWrap="CJK",
         ),
-        "tag_text": ps(
-            "TagText",
-            fontName="Helvetica-Bold", fontSize=8,
-            textColor=ACCENT_BLUE
+        "ref_value": ps(
+            "RefValue",
+            fontName="Helvetica", fontSize=8,
+            textColor=INK_ACCENT, leading=12, wordWrap="CJK",
         ),
     }
 
 
-# ─────────────────────────────────────────────
-# Table builders
-# ─────────────────────────────────────────────
-def _scan_details_table(metadata: dict, styles: dict):
-    """2-column bordered table for scan metadata."""
-    label_map = {
-        "target":    "Target",
-        "scan_id":   "Scan ID",
-        "scan_type": "Scan Type",
-        "started":   "Started",
-        "completed": "Completed",
-        "duration":  "Duration",
-        "risk_score":"Risk Score",
-        "generated": "Generated",
-    }
-    rows = []
-    for key, display in label_map.items():
-        val = metadata.get(key, metadata.get(display, "—"))
-        rows.append([
-            Paragraph(display, styles["label"]),
-            Paragraph(str(val), styles["value"]),
-        ])
+# ══════════════════════════════════════════════════════
+#  TABLE BUILDERS
+# ══════════════════════════════════════════════════════
 
-    col_w = [1.6 * inch, 5.2 * inch]
-    tbl = Table(rows, colWidths=col_w, repeatRows=0)
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND",   (0, 0), (-1, -1), CARD_BG),
-        ("ROWBACKGROUNDS",(0,0),(-1,-1),[CARD_BG, colors.HexColor("#1A2030")]),
-        ("BOX",          (0, 0), (-1, -1), 0.75, BORDER_COLOR),
-        ("INNERGRID",    (0, 0), (-1, -1), 0.5,  BORDER_COLOR),
-        ("TOPPADDING",   (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 6),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-        ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
-    ]))
-    return tbl
+_BASE_TABLE_STYLE = [
+    # zero outer border — rely on HAIRLINE box
+    ("BOX",           (0, 0), (-1, -1), 0.5, HAIRLINE),
+    ("INNERGRID",     (0, 0), (-1, -1), 0.4, DIVIDER),
+    ("TOPPADDING",    (0, 0), (-1, -1), 7),
+    ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+    ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
+    ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+]
 
 
-def _severity_table(summary: dict, styles: dict):
-    """Severity summary table with coloured count cells."""
-    order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
-    header = [Paragraph("<b>Severity</b>", styles["label"]),
-              Paragraph("<b>Count</b>",    styles["label"])]
-    rows = [header]
-    for sev in order:
-        count = summary.get(sev, summary.get(sev.title(), 0))
-        color = SEV_COLORS.get(sev, TEXT_SECONDARY)
-        rows.append([
-            Paragraph(f'<font color="{color.hexval()}">{sev}</font>', styles["value"]),
-            Paragraph(f'<font color="{color.hexval()}"><b>{count}</b></font>', styles["value"]),
-        ])
-
-    col_w = [3.4 * inch, 3.4 * inch]
-    tbl = Table(rows, colWidths=col_w)
-    style_cmds = [
-        ("BACKGROUND",   (0, 0), (-1, 0),  ACCENT_BLUE),
-        ("TEXTCOLOR",    (0, 0), (-1, 0),  WHITE),
-        ("BACKGROUND",   (0, 1), (-1, -1), CARD_BG),
-        ("ROWBACKGROUNDS",(0,1),(-1,-1),[CARD_BG, colors.HexColor("#1A2030")]),
-        ("BOX",          (0, 0), (-1, -1), 0.75, BORDER_COLOR),
-        ("INNERGRID",    (0, 0), (-1, -1), 0.5,  BORDER_COLOR),
-        ("TOPPADDING",   (0, 0), (-1, -1), 7),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 7),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 12),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
-        ("ALIGN",        (1, 0), (1, -1),  "CENTER"),
-        ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+def _scan_details_table(metadata: dict, styles: dict, col_w: float) -> Table:
+    """
+    Two-column scan details table.
+    Left column = small-caps style label (bold slate)
+    Right column = value (near-black)
+    Alternating row tint — no harsh borders.
+    """
+    label_map = [
+        ("target",     "Target"),
+        ("scan_id",    "Scan ID"),
+        ("scan_type",  "Scan Type"),
+        ("started",    "Started"),
+        ("completed",  "Completed"),
+        ("duration",   "Duration"),
+        ("risk_score", "Risk Score"),
+        ("generated",  "Generated"),
     ]
-    tbl.setStyle(TableStyle(style_cmds))
-    return tbl
 
+    rows = []
+    for key, display in label_map:
+        val = metadata.get(key, metadata.get(display, "—"))
 
-def _vuln_card(idx: int, vuln: dict, styles: dict):
-    """Build a self-contained vulnerability card as a KeepTogether block."""
-    sev = vuln.get("severity", "INFO").upper()
-    sev_color = SEV_COLORS.get(sev, TEXT_SECONDARY)
-    sev_hex   = sev_color.hexval()
-
-    elements = []
-
-    # ── title row ──
-    title_text = (
-        f'<font color="#E6EDF3"><b>{idx}. {vuln.get("name", "Unknown Vulnerability")}</b></font>'
-        f'    <font color="{sev_hex}" size="9"><b>[{sev}]</b></font>'
-    )
-    elements.append(Paragraph(title_text, styles["vuln_title"]))
-    elements.append(ColorBar(sev_color, height=2))
-    elements.append(Spacer(1, 6))
-
-    # ── meta row (OWASP / CVSS / Affected) ──
-    owasp    = vuln.get("owasp", "—")
-    cvss     = vuln.get("cvss", vuln.get("cvss_score", "—"))
-    affected = vuln.get("affected", vuln.get("port", vuln.get("url", "—")))
-
-    meta_rows = [[
-        Paragraph("<b>OWASP Mapping</b>",  styles["label"]),
-        Paragraph(str(owasp), styles["value"]),
-        Paragraph("<b>CVSS Score</b>",     styles["label"]),
-        Paragraph(f'<font color="{sev_hex}"><b>{cvss}</b></font>', styles["value"]),
-        Paragraph("<b>Affected</b>",       styles["label"]),
-        Paragraph(str(affected), styles["value"]),
-    ]]
-    meta_tbl = Table(meta_rows, colWidths=[1.1*inch, 1.7*inch, 0.9*inch, 0.8*inch, 0.8*inch, 1.5*inch])
-    meta_tbl.setStyle(TableStyle([
-        ("BACKGROUND",   (0, 0), (-1, -1), colors.HexColor("#1A2030")),
-        ("BOX",          (0, 0), (-1, -1), 0.5, BORDER_COLOR),
-        ("INNERGRID",    (0, 0), (-1, -1), 0.5, BORDER_COLOR),
-        ("TOPPADDING",   (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 5),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
-    ]))
-    elements.append(meta_tbl)
-    elements.append(Spacer(1, 8))
-
-    # ── detail rows (explanation / impact / remediation / references) ──
-    detail_data = []
-
-    def add_section(heading, content):
-        if not content:
-            return
-        if isinstance(content, list):
-            body_para = Paragraph(
-                "".join(f"&bull;  {item}<br/>" for item in content),
-                styles["bullet"]
+        # risk score gets special bold colouring
+        if key == "risk_score":
+            risk = float(val) if str(val).replace(".", "").isdigit() else 0
+            ink  = (SEV_INK["CRITICAL"] if risk >= 9
+                    else SEV_INK["HIGH"]   if risk >= 7
+                    else SEV_INK["MEDIUM"] if risk >= 4
+                    else INK_PRIMARY)
+            val_para = Paragraph(
+                f'<font color="{ink.hexval()}"><b>{val}</b></font>',
+                styles["meta_value"]
             )
         else:
-            body_para = Paragraph(str(content), styles["body"])
-        detail_data.append([
-            Paragraph(f"<b>{heading}</b>", styles["label"]),
-            body_para,
+            val_para = Paragraph(str(val), styles["meta_value"])
+
+        rows.append([
+            Paragraph(display, styles["meta_label"]),
+            val_para,
         ])
 
-    add_section("Explanation",  vuln.get("explanation", vuln.get("description", "")))
-    add_section("Impact",       vuln.get("impact", ""))
-    add_section("Remediation",  vuln.get("remediation", vuln.get("fix", [])))
-    add_section("References",   vuln.get("references", vuln.get("refs", "")))
-
-    if detail_data:
-        det_tbl = Table(detail_data, colWidths=[1.1*inch, 5.7*inch])
-        det_tbl.setStyle(TableStyle([
-            ("BACKGROUND",   (0, 0), (-1, -1), CARD_BG),
-            ("ROWBACKGROUNDS",(0,0),(-1,-1),[CARD_BG, colors.HexColor("#1A2030")]),
-            ("BOX",          (0, 0), (-1, -1), 0.5, BORDER_COLOR),
-            ("INNERGRID",    (0, 0), (-1, -1), 0.5, BORDER_COLOR),
-            ("TOPPADDING",   (0, 0), (-1, -1), 7),
-            ("BOTTOMPADDING",(0, 0), (-1, -1), 7),
-            ("LEFTPADDING",  (0, 0), (-1, -1), 10),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-            ("VALIGN",       (0, 0), (-1, -1), "TOP"),
-        ]))
-        elements.append(det_tbl)
-
-    elements.append(Spacer(1, 14))
-    return KeepTogether(elements)
+    cw   = [1.5 * inch, col_w - 1.5 * inch]
+    tbl  = Table(rows, colWidths=cw)
+    cmds = list(_BASE_TABLE_STYLE) + [
+        ("BACKGROUND",    (0, 0), (-1, -1), SURFACE_0),
+        ("ROWBACKGROUNDS",(0, 0), (-1, -1), [SURFACE_0, SURFACE_1]),
+        # label column: lighter background
+        ("BACKGROUND",    (0, 0), (0, -1),  SURFACE_1),
+    ]
+    tbl.setStyle(TableStyle(cmds))
+    return tbl
 
 
-# ─────────────────────────────────────────────
-# ReportGenerator
-# ─────────────────────────────────────────────
+def _severity_summary_table(summary: dict, styles: dict, col_w: float) -> Table:
+    """
+    Severity summary: dark header row + subtle alternating body rows.
+    Counts are right-aligned and bold.
+    """
+    order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
+
+    header = [
+        Paragraph("Severity Level", styles["sev_header"]),
+        Paragraph("Count", styles["sev_header"]),
+    ]
+    rows = [header]
+
+    for sev in order:
+        count = int(summary.get(sev, summary.get(sev.title(), 0)))
+        ink   = SEV_INK.get(sev, INK_SECONDARY)
+        bg    = SEV_BG.get(sev, SURFACE_1)
+        rows.append([
+            Paragraph(
+                f'<font color="{ink.hexval()}"><b>{sev}</b></font>',
+                styles["meta_label"]
+            ),
+            Paragraph(
+                f'<font color="{ink.hexval()}"><b>{count}</b></font>',
+                styles["sev_count"]
+            ),
+        ])
+
+    cw   = [col_w - 1.5 * inch, 1.5 * inch]
+    tbl  = Table(rows, colWidths=cw)
+    cmds = list(_BASE_TABLE_STYLE) + [
+        # header band
+        ("BACKGROUND",    (0, 0), (-1, 0),  SURFACE_HEADER),
+        ("TEXTCOLOR",     (0, 0), (-1, 0),  colors.white),
+        # body
+        ("BACKGROUND",    (0, 1), (-1, -1), SURFACE_0),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [SURFACE_0, SURFACE_1]),
+        ("ALIGN",         (1, 0), (1, -1),  "CENTER"),
+        # no inner grid for cleaner look — keep only horizontal lines
+        ("INNERGRID",     (0, 0), (-1, -1), 0, colors.transparent),
+        ("LINEBELOW",     (0, 0), (-1, -1), 0.4, DIVIDER),
+        ("BOX",           (0, 0), (-1, -1), 0.5, HAIRLINE),
+    ]
+    tbl.setStyle(TableStyle(cmds))
+    return tbl
+
+
+def _meta_row_table(pairs: list, styles: dict, col_w: float) -> Table:
+    """
+    Horizontal key-value strip used inside vulnerability cards.
+    pairs = [ (label, value), ... ]
+    """
+    label_cells = [Paragraph(lbl, styles["field_label"])  for lbl, _ in pairs]
+    value_cells = [Paragraph(str(val), styles["field_value_mono"]) for _, val in pairs]
+
+    n    = len(pairs)
+    unit = col_w / n
+    cw   = [unit] * n
+    tbl  = Table([label_cells, value_cells], colWidths=cw)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), SURFACE_1),
+        ("BOX",           (0, 0), (-1, -1), 0.4, HAIRLINE),
+        ("INNERGRID",     (0, 0), (-1, -1), 0.4, HAIRLINE),
+        ("TOPPADDING",    (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    return tbl
+
+
+def _detail_table(rows_data: list, styles: dict, col_w: float) -> Table:
+    """
+    Two-column label | content table inside vulnerability cards.
+    rows_data = [ (label_str, paragraph_or_list_of_paragraphs), ... ]
+    """
+    rows = []
+    for lbl, content in rows_data:
+        label_para = Paragraph(lbl.upper(), styles["field_label"])
+        if isinstance(content, list):
+            # list of bullet strings
+            body = [
+                Paragraph(f"&#x2022;  {item}", styles["bullet_item"])
+                for item in content
+            ]
+        else:
+            body = [Paragraph(str(content), styles["field_value"])]
+        rows.append([label_para, body])
+
+    lw  = 0.85 * inch
+    cw  = [lw, col_w - lw]
+    tbl = Table(rows, colWidths=cw)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), SURFACE_0),
+        ("ROWBACKGROUNDS",(0, 0), (-1, -1), [SURFACE_0, SURFACE_1]),
+        ("BOX",           (0, 0), (-1, -1), 0.4, HAIRLINE),
+        ("LINEBELOW",     (0, 0), (-1, -1), 0.3, DIVIDER),
+        ("TOPPADDING",    (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
+        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+        # label column slightly dimmer
+        ("BACKGROUND",    (0, 0), (0, -1),  SURFACE_1),
+    ]))
+    return tbl
+
+
+# ══════════════════════════════════════════════════════
+#  VULNERABILITY CARD
+# ══════════════════════════════════════════════════════
+
+def _vuln_card(idx: int, vuln: dict, styles: dict, card_w: float) -> KeepTogether:
+    """
+    Build a self-contained, elegantly styled vulnerability card.
+
+    Structure:
+      ┌─── 3pt severity colour rule ─────────────────────┐
+      │  #N  VULNERABILITY NAME            [SEVERITY PILL] │
+      │  ─ meta strip: OWASP | CVSS | Affected ──────────  │
+      │  ─ detail rows: Explanation / Impact / Remediation  │
+      └───────────────────────────────────────────────────┘
+    """
+    sev      = vuln.get("severity", "INFO").upper()
+    rule_col = SEV_RULE.get(sev, INK_TERTIARY)
+    ink      = SEV_INK.get(sev, INK_SECONDARY)
+
+    elems = []
+
+    # ── top colour rule ───────────────────────────────
+    elems.append(CardTopRule(rule_col, card_w))
+
+    # ── title row ─────────────────────────────────────
+    pill  = SeverityPill(sev, pill_w=58, pill_h=14)
+
+    title_row = Table(
+        [[
+            Paragraph(
+                f'<font color="{INK_TERTIARY.hexval()}" size="8">#{idx:02d}</font>   '
+                f'<b>{vuln.get("name", "Unknown Vulnerability")}</b>',
+                styles["vuln_title"]
+            ),
+            pill,
+        ]],
+        colWidths=[card_w - 0.85 * inch, 0.75 * inch],
+    )
+    title_row.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), SURFACE_0),
+        ("TOPPADDING",    (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN",         (1, 0), (1, 0),   "RIGHT"),
+    ]))
+    elems.append(title_row)
+
+    # ── meta strip ────────────────────────────────────
+    owasp    = vuln.get("owasp", "—")
+    cvss     = str(vuln.get("cvss", vuln.get("cvss_score", "—")))
+    affected = str(vuln.get("affected", vuln.get("port", vuln.get("url", "—"))))
+
+    meta_pairs = [
+        ("OWASP MAPPING", owasp),
+        ("CVSS SCORE",    cvss),
+        ("AFFECTED",      affected),
+    ]
+    elems.append(_meta_row_table(meta_pairs, styles, card_w))
+
+    # ── detail rows ───────────────────────────────────
+    detail_rows = []
+
+    explanation = vuln.get("explanation", vuln.get("description", ""))
+    if explanation:
+        detail_rows.append(("Explanation", explanation))
+
+    impact = vuln.get("impact", "")
+    if impact:
+        detail_rows.append(("Impact", impact))
+
+    remediation = vuln.get("remediation", vuln.get("fix", []))
+    if remediation:
+        if isinstance(remediation, str):
+            remediation = [remediation]
+        detail_rows.append(("Remediation", remediation))
+
+    references = vuln.get("references", vuln.get("refs", ""))
+    if references:
+        detail_rows.append(("References", references))
+
+    if detail_rows:
+        elems.append(_detail_table(detail_rows, styles, card_w))
+
+    # ── bottom spacer ─────────────────────────────────
+    elems.append(Spacer(1, 16))
+
+    return KeepTogether(elems)
+
+
+# ══════════════════════════════════════════════════════
+#  REPORT GENERATOR  (public API)
+# ══════════════════════════════════════════════════════
+
 class ReportGenerator:
     """
-    IVDF Report Generator — supports PDF, JSON, CSV output.
+    IVDF Report Generator — PDF, JSON, CSV output.
 
     Usage
     -----
     rg = ReportGenerator()
-    rg.generate_pdf("my_report", data)
-    rg.generate_json("my_report", data)
-    rg.generate_csv("my_report", data)
+    rg.generate_pdf("scan_report", data)
+    rg.generate_json("scan_report", data)
+    rg.generate_csv("scan_report", data)
 
-    data schema
-    -----------
+    Expected data schema
+    --------------------
     {
         "metadata": {
             "target":     "127.0.0.1",
@@ -377,20 +688,15 @@ class ReportGenerator:
         },
         "vulnerabilities": [
             {
-                "name":        "Dangerous Open Port: 445/SMB",
+                "name":        "...",
                 "severity":    "CRITICAL",
-                "owasp":       "OWASP A06:2021 – Security Misconfiguration",
+                "owasp":       "OWASP A06:2021 – ...",
                 "cvss":        9.8,
                 "affected":    "445",
-                "explanation": "Port 445 (SMB) is exposed to the network.",
-                "impact":      "EternalBlue / WannaCry attack surface.",
-                "remediation": [
-                    "Close port 445 if the service is not required.",
-                    "Restrict access via firewall rules to trusted IPs only.",
-                    "Place the service behind a VPN or bastion host.",
-                    "Enable authentication and encryption for the service.",
-                ],
-                "references":  "CVE-2017-0144 | MS17-010",
+                "explanation": "...",
+                "impact":      "...",
+                "remediation": ["step 1", "step 2"],
+                "references":  "CVE-...",
             }
         ],
     }
@@ -398,65 +704,82 @@ class ReportGenerator:
 
     OUTPUT_DIR = "generated_reports"
 
+    # ── internal ──────────────────────────────────────
     def _ensure_dir(self):
         os.makedirs(self.OUTPUT_DIR, exist_ok=True)
 
-    # ── PDF ───────────────────────────────────
+    # ── PDF ───────────────────────────────────────────
     def generate_pdf(self, filename: str, data: dict) -> str:
         self._ensure_dir()
         filepath = os.path.join(self.OUTPUT_DIR, f"{filename}.pdf")
         styles   = _build_styles()
 
+        # ── page geometry ─────────────────────────────
+        lm = rm = 0.65 * inch
+        tm = bm = 0.70 * inch
+        pw, ph  = letter
+        body_w  = pw - lm - rm   # usable content width ≈ 7.2 inch
+
         doc = SimpleDocTemplate(
             filepath,
             pagesize=letter,
-            leftMargin=0.6 * inch,
-            rightMargin=0.6 * inch,
-            topMargin=0.75 * inch,
-            bottomMargin=0.75 * inch,
+            leftMargin=lm, rightMargin=rm,
+            topMargin=tm,  bottomMargin=bm,
             title="Vulnerability Assessment Report",
             author="IVDF",
         )
 
         story = []
 
-        # ── COVER / TITLE ──────────────────────────────
-        story.append(Spacer(1, 20))
-        story.append(Paragraph("Vulnerability Assessment Report", styles["report_title"]))
-        story.append(Paragraph(
-            "Intelligent Vulnerability Detection and Analysis Framework",
-            styles["report_subtitle"]
+        # ── COVER BAND ────────────────────────────────
+        story.append(CoverBand(
+            title    = "Vulnerability Assessment Report",
+            subtitle = "Intelligent Vulnerability Detection and Analysis Framework",
+            available_width = body_w,
         ))
-        story.append(Spacer(1, 4))
-        story.append(HRFlowable(
-            width="100%", thickness=1, color=BORDER_COLOR, spaceAfter=18
-        ))
+        story.append(Spacer(1, 24))
 
-        # ── SCAN DETAILS ───────────────────────────────
-        story.append(Paragraph("Scan Details", styles["section_heading"]))
-        story.append(_scan_details_table(data.get("metadata", {}), styles))
-        story.append(Spacer(1, 18))
+        # ── SCAN DETAILS ──────────────────────────────
+        story.append(SectionRule("Scan Details"))
+        story.append(_scan_details_table(data.get("metadata", {}), styles, body_w))
+        story.append(Spacer(1, 22))
 
-        # ── SEVERITY SUMMARY ───────────────────────────
-        story.append(Paragraph("Severity Summary", styles["section_heading"]))
-        story.append(_severity_table(data.get("severity_summary", {}), styles))
-        story.append(Spacer(1, 18))
+        # ── SEVERITY SUMMARY ──────────────────────────
+        story.append(SectionRule("Severity Summary"))
 
-        # ── VULNERABILITY FINDINGS ─────────────────────
+        # render summary half-width, centred — looks premium on a wide page
+        half_w = body_w * 0.55
+        pad_w  = (body_w - half_w) / 2
+        sev_tbl = _severity_summary_table(
+            data.get("severity_summary", {}), styles, half_w
+        )
+        outer = Table([[sev_tbl]], colWidths=[body_w])
+        outer.setStyle(TableStyle([
+            ("LEFTPADDING",  (0, 0), (-1, -1), pad_w),
+            ("RIGHTPADDING", (0, 0), (-1, -1), pad_w),
+            ("TOPPADDING",   (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING",(0, 0), (-1, -1), 0),
+        ]))
+        story.append(outer)
+        story.append(Spacer(1, 26))
+
+        # ── VULNERABILITY FINDINGS ────────────────────
         vulns = data.get("vulnerabilities", [])
         if vulns:
-            story.append(HRFlowable(
-                width="100%", thickness=0.5, color=BORDER_COLOR, spaceAfter=10
-            ))
-            story.append(Paragraph("Vulnerability Findings", styles["section_heading"]))
+            story.append(SectionRule("Vulnerability Findings"))
+            story.append(Spacer(1, 8))
             for idx, vuln in enumerate(vulns, start=1):
-                story.append(_vuln_card(idx, vuln, styles))
+                story.append(_vuln_card(idx, vuln, styles, body_w))
 
-        # ── BUILD ──────────────────────────────────────
-        doc.build(story, onFirstPage=_header_footer, onLaterPages=_header_footer)
+        # ── BUILD ─────────────────────────────────────
+        doc.build(
+            story,
+            onFirstPage  = _page_chrome,
+            onLaterPages = _page_chrome,
+        )
         return filepath
 
-    # ── JSON ──────────────────────────────────
+    # ── JSON ──────────────────────────────────────────
     def generate_json(self, filename: str, data: dict) -> str:
         self._ensure_dir()
         filepath = os.path.join(self.OUTPUT_DIR, f"{filename}.json")
@@ -464,13 +787,12 @@ class ReportGenerator:
             json.dump(data, f, indent=4, default=str)
         return filepath
 
-    # ── CSV ───────────────────────────────────
+    # ── CSV ───────────────────────────────────────────
     def generate_csv(self, filename: str, data: dict) -> str:
         self._ensure_dir()
         filepath = os.path.join(self.OUTPUT_DIR, f"{filename}.csv")
 
         metadata = data.get("metadata", {})
-        summary  = data.get("severity_summary", {})
         vulns    = data.get("vulnerabilities", [])
 
         fieldnames = [
@@ -517,9 +839,10 @@ class ReportGenerator:
         return filepath
 
 
-# ─────────────────────────────────────────────
-# Demo / smoke test
-# ─────────────────────────────────────────────
+# ══════════════════════════════════════════════════════
+#  SMOKE TEST
+# ══════════════════════════════════════════════════════
+
 if __name__ == "__main__":
     sample_data = {
         "metadata": {
@@ -534,40 +857,60 @@ if __name__ == "__main__":
         },
         "severity_summary": {
             "CRITICAL": 1,
-            "HIGH":     0,
-            "MEDIUM":   0,
-            "LOW":      0,
+            "HIGH":     2,
+            "MEDIUM":   3,
+            "LOW":      1,
             "INFO":     0,
         },
         "vulnerabilities": [
             {
-                "name":        "Dangerous Open Port: 445/SMB",
-                "severity":    "CRITICAL",
-                "owasp":       "OWASP A06:2021 \u2013 Security Misconfiguration",
-                "cvss":        9.8,
-                "affected":    "445",
+                "name":     "Dangerous Open Port: 445/SMB",
+                "severity": "CRITICAL",
+                "owasp":    "OWASP A06:2021 \u2013 Security Misconfiguration",
+                "cvss":     9.8,
+                "affected": "445",
                 "explanation": (
-                    "Port 445 (SMB) is exposed to the network without "
-                    "firewall restrictions. This service allows remote file "
-                    "sharing and is a frequent target for automated exploits."
+                    "Port 445 (SMB) is exposed to the network without firewall "
+                    "restrictions. This service allows remote file sharing and is "
+                    "a frequent target for automated exploits including EternalBlue."
                 ),
-                "impact": "EternalBlue / WannaCry attack surface.",
+                "impact": "EternalBlue / WannaCry ransomware attack surface. "
+                          "Unauthenticated remote code execution is possible.",
                 "remediation": [
                     "Close port 445 if the service is not required.",
                     "Restrict access via firewall rules to trusted IPs only.",
                     "Place the service behind a VPN or bastion host.",
-                    "Enable authentication and encryption for the service.",
+                    "Enable authentication and encryption for the SMB service.",
+                    "Apply MS17-010 patch and all subsequent security updates.",
                 ],
-                "references": "CVE-2017-0144 | MS17-010",
+                "references": "CVE-2017-0144  |  MS17-010  |  NVD: https://nvd.nist.gov/vuln/detail/CVE-2017-0144",
+            },
+            {
+                "name":     "Outdated TLS Version: TLS 1.0 / 1.1 Enabled",
+                "severity": "HIGH",
+                "owasp":    "OWASP A02:2021 \u2013 Cryptographic Failures",
+                "cvss":     7.4,
+                "affected": "443/tcp (HTTPS)",
+                "explanation": (
+                    "The server accepts connections using deprecated TLS 1.0 and TLS 1.1 "
+                    "protocols. These versions are vulnerable to BEAST, POODLE, and other "
+                    "known cipher downgrade attacks."
+                ),
+                "impact": "Man-in-the-middle attacks may allow decryption of sensitive traffic.",
+                "remediation": [
+                    "Disable TLS 1.0 and TLS 1.1 at the server and load-balancer level.",
+                    "Enforce TLS 1.2 as minimum with strong cipher suites.",
+                    "Prefer TLS 1.3 where client compatibility allows.",
+                ],
+                "references": "NIST SP 800-52 Rev. 2  |  RFC 8996",
             },
         ],
     }
 
     rg = ReportGenerator()
-    pdf_path  = rg.generate_pdf ("report_913ee222_demo", sample_data)
-    json_path = rg.generate_json("report_913ee222_demo", sample_data)
-    csv_path  = rg.generate_csv ("report_913ee222_demo", sample_data)
-
-    print(f"PDF  → {pdf_path}")
-    print(f"JSON → {json_path}")
-    print(f"CSV  → {csv_path}")
+    pdf  = rg.generate_pdf ("report_v2_demo", sample_data)
+    j    = rg.generate_json("report_v2_demo", sample_data)
+    csv_ = rg.generate_csv ("report_v2_demo", sample_data)
+    print(f"PDF  → {pdf}")
+    print(f"JSON → {j}")
+    print(f"CSV  → {csv_}")
