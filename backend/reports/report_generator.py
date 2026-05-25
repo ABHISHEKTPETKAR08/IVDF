@@ -5,7 +5,7 @@ import json
 import csv
 
 class ReportGenerator:
-    def generate_pdf(self, filename, data=None):
+    def generate_pdf(self, filename, data:
         if data is None:
             data = {"status": "No data available"}
 
@@ -25,7 +25,7 @@ class ReportGenerator:
 
         return filepath
 
-    def generate_json(self, filename, data=None):
+    def generate_json(self, filename, data):
         if data is None:
             data = {"status": "No data available"}
 
@@ -38,7 +38,7 @@ class ReportGenerator:
 
         return filepath
 
-    def generate_csv(self, filename, data=None):
+    def generate_csv(self, filename, data):
         if data is None:
             data = {"status": "No data available"}
 
