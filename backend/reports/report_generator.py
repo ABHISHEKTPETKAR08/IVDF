@@ -5,7 +5,9 @@ import json
 import csv
 
 class ReportGenerator:
-    def generate_pdf(self, filename, data):
+    def generate_pdf(self, filename, data=None):
+        if data is None:
+        data = {"status": "No data available"}
         os.makedirs("generated_reports", exist_ok=True)
 
         filepath = f"generated_reports/{filename}.pdf"
@@ -22,7 +24,9 @@ class ReportGenerator:
 
         return filepath
 
-    def generate_json(self, filename, data):
+    def generate_json(self, filename, data=None):
+        if data is None:
+        data = {"status": "No data available"}
         os.makedirs("generated_reports", exist_ok=True)
 
         filepath = f"generated_reports/{filename}.json"
@@ -32,7 +36,9 @@ class ReportGenerator:
 
         return filepath
 
-    def generate_csv(self, filename, data):
+    def generate_csv(self, filename, data=None):
+        if data is None:
+        data = {"status": "No data available"}
         os.makedirs("generated_reports", exist_ok=True)
 
         filepath = f"generated_reports/{filename}.csv"
