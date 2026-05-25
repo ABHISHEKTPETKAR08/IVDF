@@ -1,0 +1,163 @@
+# ── Intelligent Vulnerability Detection and Analysis Framework ─────────────────
+# Full stack: FastAPI · Streamlit · Redis · PostgreSQL · Celery
+#
+# Quick start (Docker Desktop must be running):
+#   docker-compose up --build          # foreground
+#   docker-compose up -d --build       # detached
+#   docker-compose logs -f backend     # tail backend logs
+#   docker-compose down -v             # stop + remove volumes
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-scanner}:${POSTGRES_PASSWORD:-scanner}@postgres:5432/${POSTGRES_DB:-vulnscanner}
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CELERY_RESULT_BACKEND: redis://redis:6379/1
+  REDIS_REQUIRED: ${REDIS_REQUIRED:-true}
+  REDIS_REQUIRED_RETURNS_503: ${REDIS_REQUIRED_RETURNS_503:-true}
+  SECRET_KEY: ${SECRET_KEY:-change-me-in-production-min-32-chars}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_JSON: ${LOG_JSON:-false}
+  DEBUG: ${DEBUG:-false}
+  REPORTS_DIR: /app/reports
+  LOGS_DIR: /app/logs
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8501,http://frontend:8501}
+  TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
+
+services:
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: vuln_postgres
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-scanner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scanner}
+      POSTGRES_DB:       ${POSTGRES_DB:-vulnscanner}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Bind to loopback only — DB is internal to the compose network.
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scanner} -d ${POSTGRES_DB:-vulnscanner}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: vuln_redis
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    # Bind to loopback only — Redis is internal to the compose network.
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Backend (FastAPI + Uvicorn) ───────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: vuln_backend
+    environment:
+      <<: *backend-env
+    volumes:
+      - reports_data:/app/reports
+      - logs_data:/app/logs
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+
+  # ── Celery Worker ─────────────────────────────────────────────────────────────
+  celery_worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: vuln_celery
+    command: >
+      celery -A backend.automation.celery_app worker
+      --loglevel=info
+      --concurrency=4
+      --queues=celery
+      --hostname=worker@%h
+    environment:
+      <<: *backend-env
+    volumes:
+      - reports_data:/app/reports
+      - logs_data:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Celery Flower (task monitor) ──────────────────────────────────────────────
+  # Protected by basic auth — set FLOWER_USER / FLOWER_PASSWORD in .env.
+  # Defaults are insecure (admin:admin) and meant only for local development.
+  flower:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: vuln_flower
+    command: >
+      celery -A backend.automation.celery_app flower
+      --port=5555
+      --broker=redis://redis:6379/0
+      --basic_auth=${FLOWER_USER:-admin}:${FLOWER_PASSWORD:-admin}
+    environment:
+      <<: *backend-env
+    # Bind to loopback only — Flower should never be on a public interface.
+    ports:
+      - "127.0.0.1:5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Streamlit Frontend ────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: vuln_frontend
+    environment:
+      # Read by frontend/dashboard.py — points the dashboard at the backend
+      # service inside the compose network.
+      API_BASE_URL: ${API_BASE_URL:-http://backend:8000}
+    ports:
+      - "8501:8501"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  reports_data:
+  logs_data:
+
+networks:
+  default:
+    name: vuln_network

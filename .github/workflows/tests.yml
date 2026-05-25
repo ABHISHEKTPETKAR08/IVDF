@@ -1,0 +1,35 @@
+name: tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install system deps (nmap optional, used by smoke tests)
+        run: sudo apt-get update && sudo apt-get install -y nmap
+      - name: Install Python deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+          pip install pytest pytest-asyncio pytest-cov
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ --asyncio-mode=auto \
+            --cov=backend --cov-report=term-missing --cov-fail-under=85
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            .coverage
+            htmlcov/
