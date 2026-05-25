@@ -11,7 +11,7 @@ class ReportGenerator:
 
         os.makedirs("generated_reports", exist_ok=True)
 
-        filepath = f"generated_reports/{filename}.pdf"
+        filepath = "generated_reports/report.pdf"
 
         c = canvas.Canvas(filepath, pagesize=letter)
         c.drawString(100, 750, "IVDF Vulnerability Report")
@@ -31,7 +31,7 @@ class ReportGenerator:
 
         os.makedirs("generated_reports", exist_ok=True)
 
-        filepath = f"generated_reports/{filename}.json"
+        filepath = "generated_reports/report.json"
 
         with open(filepath, "w") as f:
             json.dump(data, f, indent=4)
@@ -44,7 +44,7 @@ class ReportGenerator:
 
         os.makedirs("generated_reports", exist_ok=True)
 
-        filepath = f"generated_reports/{filename}.csv"
+        filepath = "generated_reports/report.csv"
 
         with open(filepath, "w", newline="") as f:
             writer = csv.writer(f)
